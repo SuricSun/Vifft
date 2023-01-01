@@ -12,7 +12,7 @@ unsigned __stdcall Suancai::Vifft::__Vifft_content_window_message_loop_wrapper(v
 
 	LARGE_INTEGER cps = {};
 	LARGE_INTEGER start_cnt = {};
-	LARGE_INTEGER cur_cnt = {};
+	LARGE_INTEGER end_cnt = {};
 
 	QueryPerformanceFrequency(addr(cps));
 
@@ -119,22 +119,22 @@ unsigned __stdcall Suancai::Vifft::__Vifft_content_window_message_loop_wrapper(v
 				SetWindowPos(p_ctnt_ctx->hwnd, NULL, 0, screenY - wnd_height, screenX, wnd_height, SWP_NOACTIVATE);
 				p_d2d_ctx->resize_mem_dc_And_Render_target();
 			}
+			//一直获取fft（如果获取不到fft，渲染之前的fft的话，和不渲染是一样的，不如一直等待）
+			while (p_aud_ctx->fft_lock.try_get_With_locked_data((void**)addr(p_fft_series_new)) == false);
+			//成功获取
+			//检查fft_size是否已经更新
+			if (cur_fft_size != p_aud_ctx->fft.fft_size) {
+				cur_fft_size = p_aud_ctx->fft.fft_size;
+				sdela(p_fft_series);
+				p_fft_series = new FFT::Complex[cur_fft_size];
+				ZeroMemory(p_fft_series, sizeof(FFT::Complex) * cur_fft_size);
+			}
+			CopyMemory(p_fft_series, p_fft_series_new, sizeof(FFT::Complex) * cur_fft_size);
+			p_aud_ctx->fft_lock.release();
+			//开始渲染
 			p_d2d_ctx->p_dcrt->BeginDraw();
 			p_d2d_ctx->p_dcrt->Clear(D2D1::ColorF(0, 0, 0, 0));
-			//尝试获取fft
-			if (p_aud_ctx->fft_lock.try_get_With_locked_data((void**)addr(p_fft_series_new))) {
-				//检查fft_size是否已经更新
-				if (cur_fft_size != p_aud_ctx->fft.fft_size) {
-					cur_fft_size = p_aud_ctx->fft.fft_size;
-					sdela(p_fft_series);
-					p_fft_series = new FFT::Complex[cur_fft_size];
-					ZeroMemory(p_fft_series, sizeof(FFT::Complex) * cur_fft_size);
-				}
-				CopyMemory(p_fft_series, p_fft_series_new, sizeof(FFT::Complex) * cur_fft_size);
-				p_aud_ctx->fft_lock.release();
-			} else {
-				p_ctnt_ctx->render_thread_aquire_fft_buffer_failed++;
-			}
+			//设置画刷透明度
 			p_d2d_ctx->p_solid_color_brush->SetOpacity(p_app_cfg->solid_color.a);
 			drawing_cnt = p_app_cfg->draw_freq_cnt;
 			//防止越界
@@ -167,8 +167,8 @@ unsigned __stdcall Suancai::Vifft::__Vifft_content_window_message_loop_wrapper(v
 				);
 			}
 			p_d2d_ctx->p_dcrt->EndDraw();
-			QueryPerformanceCounter(addr(cur_cnt));
-			p_ctnt_ctx->cur_frame_time = ((float)cur_cnt.QuadPart - (float)start_cnt.QuadPart) / (float)cps.QuadPart * 1000.0f;
+			QueryPerformanceCounter(addr(end_cnt));
+			p_ctnt_ctx->cur_frame_time = ((float)end_cnt.QuadPart - (float)start_cnt.QuadPart) / (float)cps.QuadPart * 1000.0f;
 			//update transparent window
 			QueryPerformanceCounter(addr(start_cnt));
 			RECT r;
@@ -195,13 +195,13 @@ unsigned __stdcall Suancai::Vifft::__Vifft_content_window_message_loop_wrapper(v
 			if (IsWindowVisible(p_ctnt_ctx->hwnd)) {
 				BringWindowToTop(p_ctnt_ctx->hwnd);
 			}
-			QueryPerformanceCounter(addr(cur_cnt));
-			p_ctnt_ctx->update_layered_time = ((float)cur_cnt.QuadPart - (float)start_cnt.QuadPart) / (float)cps.QuadPart * 1000.0f;
+			QueryPerformanceCounter(addr(end_cnt));
+			p_ctnt_ctx->update_layered_time = ((float)end_cnt.QuadPart - (float)start_cnt.QuadPart) / (float)cps.QuadPart * 1000.0f;
 		}
 		QueryPerformanceCounter(addr(start_cnt));
 		Sleep(p_app_cfg->update_rate_ms);
-		QueryPerformanceCounter(addr(cur_cnt));
-		p_ctnt_ctx->cur_frame_sleep_time = ((float)cur_cnt.QuadPart - (float)start_cnt.QuadPart) / (float)cps.QuadPart * 1000.0f;
+		QueryPerformanceCounter(addr(end_cnt));
+		p_ctnt_ctx->cur_frame_sleep_time = ((float)end_cnt.QuadPart - (float)start_cnt.QuadPart) / (float)cps.QuadPart * 1000.0f;
 	}
 
 	return 0;
@@ -218,7 +218,7 @@ unsigned __stdcall Suancai::Vifft::__Audio_capture_wrapper(void* p_arg) {
 
 	LARGE_INTEGER cps = {};
 	LARGE_INTEGER start_cnt = {};
-	LARGE_INTEGER cur_cnt = {};
+	LARGE_INTEGER end_cnt = {};
 
 	QueryPerformanceFrequency(addr(cps));
 
@@ -266,8 +266,8 @@ unsigned __stdcall Suancai::Vifft::__Audio_capture_wrapper(void* p_arg) {
 	while (true) {
 		QueryPerformanceCounter(addr(start_cnt));
 		Sleep(p_app_cfg->update_rate_ms);
-		QueryPerformanceCounter(addr(cur_cnt));
-		p_ctnt_ctx->fft_sleep_time = ((float)cur_cnt.QuadPart - (float)start_cnt.QuadPart) / (float)cps.QuadPart * 1000.0f;
+		QueryPerformanceCounter(addr(end_cnt));
+		p_ctnt_ctx->fft_sleep_time = ((float)end_cnt.QuadPart - (float)start_cnt.QuadPart) / (float)cps.QuadPart * 1000.0f;
 		
 		samples_cap = 0;
 		p_cap_cli->GetNextPacketSize(addr(nums_available));
@@ -308,8 +308,8 @@ unsigned __stdcall Suancai::Vifft::__Audio_capture_wrapper(void* p_arg) {
 				}
 				QueryPerformanceCounter(addr(start_cnt));
 				p_fft->do_fft(p_fft_sample_buffer, buffer_start, cur_fft_size, 0, 1, cur_fft_size);
-				QueryPerformanceCounter(addr(cur_cnt));
-				p_ctnt_ctx->fft_calc_time = ((float)cur_cnt.QuadPart - (float)start_cnt.QuadPart) / (float)cps.QuadPart * 1000.0f;
+				QueryPerformanceCounter(addr(end_cnt));
+				p_ctnt_ctx->fft_calc_time = ((float)end_cnt.QuadPart - (float)start_cnt.QuadPart) / (float)cps.QuadPart * 1000.0f;
 				p_aud_ctx->fft_lock.release_With_locked_data(p_fft->p_result1_final);
 			} else {
 				p_ctnt_ctx->audio_thread_aquire_fft_buffer_failed++;

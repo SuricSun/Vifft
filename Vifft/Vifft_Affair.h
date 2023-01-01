@@ -123,14 +123,14 @@ namespace Suancai {
 			Vifft_d2d_drawing_context d2d_ctx;
 			//Simple_Mutex config_updated_lock;
 			// * status
-			float cur_frame_time = 0;
-			float cur_frame_sleep_time = 0;
-			float update_layered_time = 0;
-			float fft_calc_time = 0;
-			float fft_sleep_time = 0;
-			u32 samples_cap = 0;
-			u32 audio_thread_aquire_fft_buffer_failed = 0;
-			u32 render_thread_aquire_fft_buffer_failed = 0;
+			volatile float cur_frame_time = 0;
+			volatile float cur_frame_sleep_time = 0;
+			volatile float update_layered_time = 0;
+			volatile float fft_calc_time = 0;
+			volatile float fft_sleep_time = 0;
+			volatile u32 samples_cap = 0;
+			volatile u32 audio_thread_aquire_fft_buffer_failed = 0;
+			volatile u32 render_thread_aquire_fft_buffer_failed = 0;
 			// * info
 			u8string device_name;
 		public:

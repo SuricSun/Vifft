@@ -359,7 +359,7 @@ void Fire(HINSTANCE hInstance) {
 				ImGui::End();
 			}
 
-			ImGui::ShowDemoWindow();
+			//ImGui::ShowDemoWindow();
 
 			// Rendering
 			ImGui::Render();
