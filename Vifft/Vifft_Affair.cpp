@@ -14,6 +14,9 @@ unsigned __stdcall Suancai::Vifft::__Vifft_content_window_message_loop_wrapper(v
 	LARGE_INTEGER start_cnt = {};
 	LARGE_INTEGER end_cnt = {};
 
+	LARGE_INTEGER last_frame = {};
+	LARGE_INTEGER this_frame = {};
+
 	QueryPerformanceFrequency(addr(cps));
 
 	//开FFT线程
@@ -94,7 +97,16 @@ unsigned __stdcall Suancai::Vifft::__Vifft_content_window_message_loop_wrapper(v
 	);
 	float h = 0;
 	float r = 0, g = 0, b = 0;
+	u32 cur_frame_time = 0;
 	while (true) {
+		//获取性能模式
+		Vifft_config_ctx::Vifft_Config::Power_Mode cur_power_mode = p_app_cfg->power_mode;
+		if (cur_power_mode == Vifft_config_ctx::Vifft_Config::Power_Mode::High) {
+			QueryPerformanceCounter(addr(last_frame));
+		}
+		//获取帧时间
+		cur_frame_time = p_app_cfg->update_rate_ms;
+
 		// Poll and handle messages (inputs, window resize, etc.)
 		// See the WndProc() function below for our to dispatch events to the Win32 backend.
 		while (PeekMessageW(&msg, NULL, 0U, 0U, PM_REMOVE) != 0) {
@@ -108,6 +120,7 @@ unsigned __stdcall Suancai::Vifft::__Vifft_content_window_message_loop_wrapper(v
 		if (shouldContinue == false) {
 			break;
 		}
+		//准备渲染
 		if (IsWindowVisible(p_ctnt_ctx->hwnd)) {
 			QueryPerformanceCounter(addr(start_cnt));
 			//检查是否要更新窗口大小
@@ -198,10 +211,28 @@ unsigned __stdcall Suancai::Vifft::__Vifft_content_window_message_loop_wrapper(v
 			QueryPerformanceCounter(addr(end_cnt));
 			p_ctnt_ctx->update_layered_time = ((float)end_cnt.QuadPart - (float)start_cnt.QuadPart) / (float)cps.QuadPart * 1000.0f;
 		}
-		QueryPerformanceCounter(addr(start_cnt));
-		Sleep(p_app_cfg->update_rate_ms);
-		QueryPerformanceCounter(addr(end_cnt));
-		p_ctnt_ctx->cur_frame_sleep_time = ((float)end_cnt.QuadPart - (float)start_cnt.QuadPart) / (float)cps.QuadPart * 1000.0f;
+		//根据性能模式选择
+		if (cur_power_mode == Vifft_config_ctx::Vifft_Config::Power_Mode::Low) {
+			QueryPerformanceCounter(addr(start_cnt));
+			Sleep(p_app_cfg->update_rate_ms);
+			QueryPerformanceCounter(addr(end_cnt));
+			p_ctnt_ctx->cur_frame_sleep_time = ((float)end_cnt.QuadPart - (float)start_cnt.QuadPart) / (float)cps.QuadPart * 1000.0f;
+		} else if (cur_power_mode == Vifft_config_ctx::Vifft_Config::Power_Mode::High) {
+			//循环直到16ms到来
+			QueryPerformanceCounter(addr(start_cnt));
+			while (true) {
+				QueryPerformanceCounter(addr(this_frame));
+				if ((((float)this_frame.QuadPart - (float)last_frame.QuadPart) / (float)cps.QuadPart * 1000.0f) >= cur_frame_time) {
+					//可以继续
+					break;
+				} else {
+					//让出时间片
+					Sleep(0);
+				}
+			}
+			QueryPerformanceCounter(addr(end_cnt));
+			p_ctnt_ctx->cur_frame_sleep_time = ((float)end_cnt.QuadPart - (float)start_cnt.QuadPart) / (float)cps.QuadPart * 1000.0f;
+		}
 	}
 
 	return 0;
@@ -219,6 +250,9 @@ unsigned __stdcall Suancai::Vifft::__Audio_capture_wrapper(void* p_arg) {
 	LARGE_INTEGER cps = {};
 	LARGE_INTEGER start_cnt = {};
 	LARGE_INTEGER end_cnt = {};
+
+	LARGE_INTEGER last_frame = {};
+	LARGE_INTEGER this_frame = {};
 
 	QueryPerformanceFrequency(addr(cps));
 
@@ -263,11 +297,15 @@ unsigned __stdcall Suancai::Vifft::__Audio_capture_wrapper(void* p_arg) {
 
 	u32 samples_cap = 0;
 	bool has_samples = false;
+	u8 cur_frame_time = 0;
 	while (true) {
-		QueryPerformanceCounter(addr(start_cnt));
-		Sleep(p_app_cfg->update_rate_ms);
-		QueryPerformanceCounter(addr(end_cnt));
-		p_ctnt_ctx->fft_sleep_time = ((float)end_cnt.QuadPart - (float)start_cnt.QuadPart) / (float)cps.QuadPart * 1000.0f;
+		//获取性能模式
+		Vifft_config_ctx::Vifft_Config::Power_Mode cur_power_mode = p_app_cfg->power_mode;
+		if (cur_power_mode == Vifft_config_ctx::Vifft_Config::Power_Mode::High) {
+			QueryPerformanceCounter(addr(last_frame));
+		}
+		//获取帧时间
+		cur_frame_time = p_app_cfg->update_rate_ms;
 		
 		samples_cap = 0;
 		p_cap_cli->GetNextPacketSize(addr(nums_available));
@@ -316,6 +354,28 @@ unsigned __stdcall Suancai::Vifft::__Audio_capture_wrapper(void* p_arg) {
 			}
 		}
 		p_ctnt_ctx->samples_cap = samples_cap;
+		//根据性能模式选择
+		if (cur_power_mode == Vifft_config_ctx::Vifft_Config::Power_Mode::Low) {
+			QueryPerformanceCounter(addr(start_cnt));
+			Sleep(p_app_cfg->update_rate_ms);
+			QueryPerformanceCounter(addr(end_cnt));
+			p_ctnt_ctx->cur_frame_sleep_time = ((float)end_cnt.QuadPart - (float)start_cnt.QuadPart) / (float)cps.QuadPart * 1000.0f;
+		} else if (cur_power_mode == Vifft_config_ctx::Vifft_Config::Power_Mode::High) {
+			//循环直到16ms到来
+			QueryPerformanceCounter(addr(start_cnt));
+			while (true) {
+				QueryPerformanceCounter(addr(this_frame));
+				if ((((float)this_frame.QuadPart - (float)last_frame.QuadPart) / (float)cps.QuadPart * 1000.0f) >= cur_frame_time) {
+					//可以继续
+					break;
+				} else {
+					//让出时间片
+					Sleep(0);
+				}
+			}
+			QueryPerformanceCounter(addr(end_cnt));
+			p_ctnt_ctx->fft_sleep_time = ((float)end_cnt.QuadPart - (float)start_cnt.QuadPart) / (float)cps.QuadPart * 1000.0f;
+		}
 	}
 
 	p_cap->disable_capture();

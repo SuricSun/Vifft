@@ -142,7 +142,7 @@ void Fire(HINSTANCE hInstance) {
 	//io.Fonts->AddFontFromFileTTF("../../misc/fonts/DroidSans.ttf", 16.0f);
 	//io.Fonts->AddFontFromFileTTF("../../misc/fonts/ProggyTiny.ttf", 10.0f);
 	//ImFont* font = io.Fonts->AddFontFromFileTTF(U8("C:\\Windows\\Fonts\\SIMYOU.TTF"), 15.0f, NULL, io.Fonts->GetGlyphRangesChineseFull());
-	ImFont* p_font = io.Fonts->AddFontFromFileTTF((char*)u8"C:\\Windows\\Fonts\\msyh.ttc", 18, NULL, io.Fonts->GetGlyphRangesChineseSimplifiedCommon());
+	ImFont* p_font = io.Fonts->AddFontFromFileTTF((char*)u8"C:\\Windows\\Fonts\\msyh.ttc", 18, NULL, io.Fonts->GetGlyphRangesChineseFull());
 	//IM_ASSERT(font != NULL);
 	// * 设置ImGui全局样式
 	ImGuiStyle& ref_style = ImGui::GetStyle();
@@ -176,7 +176,7 @@ void Fire(HINSTANCE hInstance) {
 	*/
 
 	//TODO: 可以增加选项设置进程优先级
-	if (SetPriorityClass(GetCurrentProcess(), BELOW_NORMAL_PRIORITY_CLASS) == FALSE) {
+	if (SetPriorityClass(GetCurrentProcess(), IDLE_PRIORITY_CLASS) == FALSE) {
 		SUANCAI_THROW("无法设置进程调度优先级", -1, Suancai::Common_Exception::Base_exception);
 	}
 
@@ -202,15 +202,22 @@ void Fire(HINSTANCE hInstance) {
 	ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings;
 
 	const char* update_interval_name[] = {u8char("30fps"), u8char("60fps")};
-	const u32 update_interval_value[] = {33, 17};
+	const u32 update_interval_value[] = {33, 17, 0};
 	//默认0，也就是30fps
-	int update_interval_selected_idx = 0; // Here we store our selection data as an index.
+	int update_interval_selected_idx = 0;
 
 	const char* fft_size_name[] = {u8char("1024"), u8char("2048")};
 	const u32 fft_size_value[] = {1024, 2048};
+	//默认0，也就是1024samples
+	int fft_size_selected_idx = 0;
 
-	//默认0，也就是30fps
-	int fft_size_selected_idx = 0; // Here we store our selection data as an index.
+	const char* power_mode_name[] = {u8char("极致省电"), u8char("极致费电")};
+	const Vifft_config_ctx::Vifft_Config::Power_Mode power_mode_value[] = {
+		Vifft_config_ctx::Vifft_Config::Power_Mode::Low, 
+		Vifft_config_ctx::Vifft_Config::Power_Mode::High
+	};
+	//默认0，也就是1024samples
+	int power_mode_selected_idx = 0;
 
 	int draw_cnt = p_cfg->draw_freq_cnt;
 	int wnd_height = p_cfg->window_height;
@@ -263,17 +270,35 @@ void Fire(HINSTANCE hInstance) {
 							} else {
 								ImGui::TextColored(ImVec4(0.5, 0.5, 0.5, 1), u8char("Not Running"));
 							}
-							ImGui::Text(u8char("Sound Card Name: %s"), Ctx_Pack.content_ctx.device_name.c_str());
-							ImGui::Text(u8char("d2d render: %f ms"), Ctx_Pack.content_ctx.cur_frame_time);
-							ImGui::Text(u8char("update layered window: %f ms"), Ctx_Pack.content_ctx.update_layered_time);
-							ImGui::Text(u8char("render thread sleep time: %f ms"), Ctx_Pack.content_ctx.cur_frame_sleep_time);
-							ImGui::Text(u8char("fft calc time: %f ms"), Ctx_Pack.content_ctx.fft_calc_time);
-							ImGui::Text(u8char("fft sleep time: %f ms"), Ctx_Pack.content_ctx.fft_sleep_time);
-							ImGui::Text(u8char("samples cap: %d"), Ctx_Pack.content_ctx.samples_cap);
-							ImGui::Text(u8char("render thread failed get fft: %d times"), Ctx_Pack.content_ctx.render_thread_aquire_fft_buffer_failed);
-							ImGui::Text(u8char("audio thread failed get fft: %d times"), Ctx_Pack.content_ctx.audio_thread_aquire_fft_buffer_failed);
+							ImGui::Text(u8char("声卡名称: %s"), Ctx_Pack.content_ctx.device_name.c_str());
+							ImGui::Text(u8char("渲染时长: %f ms"), Ctx_Pack.content_ctx.cur_frame_time);
+							ImGui::Text(u8char("UpdateLayeredWindow: %f ms"), Ctx_Pack.content_ctx.update_layered_time);
+							ImGui::Text(u8char("渲染线程闲置时长: %f ms"), Ctx_Pack.content_ctx.cur_frame_sleep_time);
+							ImGui::Text(u8char("计算傅里叶时长: %f ms"), Ctx_Pack.content_ctx.fft_calc_time);
+							ImGui::Text(u8char("音频处理线程闲置时长: %f ms"), Ctx_Pack.content_ctx.fft_sleep_time);
+							ImGui::Text(u8char("捕获采样数: %d"), Ctx_Pack.content_ctx.samples_cap);
+							ImGui::Text(u8char("渲染线程冲突: %d times"), Ctx_Pack.content_ctx.render_thread_aquire_fft_buffer_failed);
+							ImGui::Text(u8char("音频线程冲突: %d times"), Ctx_Pack.content_ctx.audio_thread_aquire_fft_buffer_failed);
 							ImGui::Separator();
 							if (ImGui::CollapsingHeader(u8char("Common Settings"))) {
+								ImGui::PushItemWidth(128);
+								if (ImGui::BeginCombo(u8char("性能选项"), power_mode_name[power_mode_selected_idx])) {
+									for (int n = 0; n < IM_ARRAYSIZE(power_mode_name); n++) {
+										const bool is_selected = (power_mode_selected_idx == n);
+										//如果ImGui::Selectable(...)返回真代表本帧被点击
+										if (ImGui::Selectable(power_mode_name[n], is_selected)) {
+											power_mode_selected_idx = n;
+											//更新设置
+											p_cfg->power_mode = power_mode_value[power_mode_selected_idx];
+										}
+										// Set the initial focus when opening the combo (scrolling + keyboard navigation focus)
+										if (is_selected) {
+											ImGui::SetItemDefaultFocus();
+										}
+									}
+									ImGui::EndCombo();
+								}
+								ImGui::PopItemWidth();
 								ImGui::PushItemWidth(128);
 								if (ImGui::BeginCombo(u8char("Update Interval"), update_interval_name[update_interval_selected_idx])) {
 									for (int n = 0; n < IM_ARRAYSIZE(update_interval_name); n++) {
@@ -366,7 +391,7 @@ void Fire(HINSTANCE hInstance) {
 			Ctx_Pack.config_ctx.d3d_ctx.g_pd3dDeviceContext->OMSetRenderTargets(1, addr(Ctx_Pack.config_ctx.d3d_ctx.g_mainRenderTargetView), NULL);
 			Ctx_Pack.config_ctx.d3d_ctx.g_pd3dDeviceContext->ClearRenderTargetView(Ctx_Pack.config_ctx.d3d_ctx.g_mainRenderTargetView, clear_color);
 			ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-			Ctx_Pack.config_ctx.d3d_ctx.g_pSwapChain->Present(1, 0);  //Present without vsync
+			Ctx_Pack.config_ctx.d3d_ctx.g_pSwapChain->Present(1, 0);  //Present with vsync
 		} else {
 			//窗口进后台，不需要如此频繁PeekMessage
 			Sleep(123);

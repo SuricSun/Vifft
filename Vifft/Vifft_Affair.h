@@ -36,7 +36,7 @@ namespace Suancai {
 		public:
 			class Vifft_d3d_drawing_context {
 			public:
-				HWND hwnd;
+				HWND hwnd = NULL;
 				ID3D11Device* g_pd3dDevice = NULL;
 				ID3D11DeviceContext* g_pd3dDeviceContext = NULL;
 				IDXGISwapChain* g_pSwapChain = NULL;
@@ -58,6 +58,10 @@ namespace Suancai {
 			public:
 				// * 数据与渲染速度
 				//音频数据和渲染更新的速度
+				enum class Power_Mode {
+					Low = 0, High = 1
+				};
+				volatile Power_Mode power_mode = Power_Mode::Low;
 				volatile u32 update_rate_ms = 33;//默认30fps
 				// * fft相关
 				volatile u32 fft_size = 1024;

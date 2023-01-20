@@ -32,7 +32,7 @@ namespace Suancai {
 			public:
 				class Transform {
 				public:
-					XMFLOAT4X4A
+					XMFLOAT4X4A t;
 				};
 			public:
 				D3D11_Renderer* p_parent_renderer = NULL;
