@@ -53,7 +53,7 @@ namespace Suancai {
 			public:
 				class Color4 {
 				public:
-					float r = 1, g = 1, b = 1, a = 0.8;
+					float r = 1, g = 1, b = 1, a = 0.8f;
 				};
 			public:
 				// * 数据与渲染速度
@@ -61,13 +61,22 @@ namespace Suancai {
 				enum class Power_Mode {
 					Low = 0, High = 1
 				};
+				class Draw_Shape_Config {
+				public:
+					enum class Draw_Shape_Style {
+						Line = 0, Rounded_Rect = 1
+					};
+					Draw_Shape_Style draw_shape_style = Draw_Shape_Style::Line;
+					float line_width_multiplier = 4.0f;
+				};
 				volatile Power_Mode power_mode = Power_Mode::Low;
 				volatile u32 update_rate_ms = 33;//默认30fps
 				// * fft相关
 				volatile u32 fft_size = 1024;
 				// * 样式相关
+				volatile Draw_Shape_Config draw_shape_config;
 				volatile u32 window_height = 256;
-				volatile float amp_factor = 3;
+				volatile float amp_multiplier = 4.0f;
 				//u32 draw_start_freq = 0;
 				volatile u32 draw_freq_cnt = 512;
 				volatile bool show_window_frame = false;
@@ -75,7 +84,6 @@ namespace Suancai {
 			};
 		public:
 			Vifft_Config cfg;
-			u32 cfg_updated = 0;
 		public:
 			HWND hwnd = NULL;
 			Vifft_d3d_drawing_context d3d_ctx;
@@ -110,8 +118,8 @@ namespace Suancai {
 				ID2D1Factory* p_d2d_fac = NULL;
 				ID2D1DCRenderTarget* p_dcrt = NULL;
 				ID2D1SolidColorBrush* p_solid_color_brush = NULL;
-				ID2D1PathGeometry* p_path = NULL;
-				ID2D1GeometrySink* p_path_sink = NULL;
+				//ID2D1PathGeometry* p_path = NULL;
+				//ID2D1GeometrySink* p_path_sink = NULL;
 			public:
 				Vifft_d2d_drawing_context();
 				BOOL init_d2d_backend(HWND hwnd);

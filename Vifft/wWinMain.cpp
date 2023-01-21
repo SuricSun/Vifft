@@ -176,7 +176,7 @@ void Fire(HINSTANCE hInstance) {
 	*/
 
 	//TODO: 可以增加选项设置进程优先级
-	if (SetPriorityClass(GetCurrentProcess(), IDLE_PRIORITY_CLASS) == FALSE) {
+	if (SetPriorityClass(GetCurrentProcess(), BELOW_NORMAL_PRIORITY_CLASS) == FALSE) {
 		SUANCAI_THROW("无法设置进程调度优先级", -1, Suancai::Common_Exception::Base_exception);
 	}
 
@@ -219,10 +219,17 @@ void Fire(HINSTANCE hInstance) {
 	//默认0，也就是1024samples
 	int power_mode_selected_idx = 0;
 
-	int draw_cnt = p_cfg->draw_freq_cnt;
-	int wnd_height = p_cfg->window_height;
-	float amp_factor = 3.0f;
-	ImVec4 color4 = ImVec4(1, 1, 1, 0.8);
+	const char* draw_shape_name[] = {u8char("线条"), u8char("圆角矩形")};
+	const Vifft_config_ctx::Vifft_Config::Draw_Shape_Config::Draw_Shape_Style draw_shape_value[] = {
+		Vifft_config_ctx::Vifft_Config::Draw_Shape_Config::Draw_Shape_Style::Line,
+		Vifft_config_ctx::Vifft_Config::Draw_Shape_Config::Draw_Shape_Style::Rounded_Rect
+	};
+	//默认0，也就是1024samples
+	int draw_shape_selected_idx = 0;
+
+	i32 window_height = 0;
+	i32 uniform_temp_i32 = 0;
+	float uniform_temp_float = 0.0f;
 
 	/*
 	* 开始消息循环
@@ -256,33 +263,16 @@ void Fire(HINSTANCE hInstance) {
 			ImGui::SetNextWindowPos(viewport->Pos);
 			ImGui::SetNextWindowSize(viewport->Size);
 
-			if (ImGui::Begin(u8char("#root"), nullptr, window_flags)) {
-				if (ImGui::BeginTabBar(u8char("#root_tab"), ImGuiTabBarFlags_::ImGuiTabBarFlags_None)) {
+			if (ImGui::Begin(u8char("##root"), nullptr, window_flags)) {
+				if (ImGui::BeginTabBar(u8char("##root_tab"), ImGuiTabBarFlags_::ImGuiTabBarFlags_None)) {
 					if (ImGui::BeginTabItem(u8char("工作线程设置"), nullptr, ImGuiTabItemFlags_::ImGuiTabItemFlags_None)) {
-						if (ImGui::BeginChild(u8char("#child"))) {
-							/*
-							* 工作线程设置
-							*/
-							ImGui::Text(u8char("Virtualizer thread status: "));
-							ImGui::SameLine();
-							if (Ctx_Pack.content_ctx.thread_ready.is_locked()) {
-								ImGui::TextColored(ImVec4(0, 1, 0, 1), u8char("Running"));
-							} else {
-								ImGui::TextColored(ImVec4(0.5, 0.5, 0.5, 1), u8char("Not Running"));
-							}
-							ImGui::Text(u8char("声卡名称: %s"), Ctx_Pack.content_ctx.device_name.c_str());
-							ImGui::Text(u8char("渲染时长: %f ms"), Ctx_Pack.content_ctx.cur_frame_time);
-							ImGui::Text(u8char("UpdateLayeredWindow: %f ms"), Ctx_Pack.content_ctx.update_layered_time);
-							ImGui::Text(u8char("渲染线程闲置时长: %f ms"), Ctx_Pack.content_ctx.cur_frame_sleep_time);
-							ImGui::Text(u8char("计算傅里叶时长: %f ms"), Ctx_Pack.content_ctx.fft_calc_time);
-							ImGui::Text(u8char("音频处理线程闲置时长: %f ms"), Ctx_Pack.content_ctx.fft_sleep_time);
-							ImGui::Text(u8char("捕获采样数: %d"), Ctx_Pack.content_ctx.samples_cap);
-							ImGui::Text(u8char("渲染线程冲突: %d times"), Ctx_Pack.content_ctx.render_thread_aquire_fft_buffer_failed);
-							ImGui::Text(u8char("音频线程冲突: %d times"), Ctx_Pack.content_ctx.audio_thread_aquire_fft_buffer_failed);
-							ImGui::Separator();
-							if (ImGui::CollapsingHeader(u8char("Common Settings"))) {
+						if (ImGui::BeginChild(u8char("##root_tab_child"))) {
+							if (ImGui::TreeNode(u8char("性能"))) {
+								ImGui::AlignTextToFramePadding();
+								ImGui::Text(u8char("性能选项"));
+								ImGui::SameLine();
 								ImGui::PushItemWidth(128);
-								if (ImGui::BeginCombo(u8char("性能选项"), power_mode_name[power_mode_selected_idx])) {
+								if (ImGui::BeginCombo(u8char("##性能选项"), power_mode_name[power_mode_selected_idx])) {
 									for (int n = 0; n < IM_ARRAYSIZE(power_mode_name); n++) {
 										const bool is_selected = (power_mode_selected_idx == n);
 										//如果ImGui::Selectable(...)返回真代表本帧被点击
@@ -299,8 +289,12 @@ void Fire(HINSTANCE hInstance) {
 									ImGui::EndCombo();
 								}
 								ImGui::PopItemWidth();
+
+								ImGui::AlignTextToFramePadding();
+								ImGui::Text(u8char("帧率"));
+								ImGui::SameLine();
 								ImGui::PushItemWidth(128);
-								if (ImGui::BeginCombo(u8char("Update Interval"), update_interval_name[update_interval_selected_idx])) {
+								if (ImGui::BeginCombo(u8char("##帧率"), update_interval_name[update_interval_selected_idx])) {
 									for (int n = 0; n < IM_ARRAYSIZE(update_interval_name); n++) {
 										const bool is_selected = (update_interval_selected_idx == n);
 										//如果ImGui::Selectable(...)返回真代表本帧被点击
@@ -317,8 +311,12 @@ void Fire(HINSTANCE hInstance) {
 									ImGui::EndCombo();
 								}
 								ImGui::PopItemWidth();
+
+								ImGui::AlignTextToFramePadding();
+								ImGui::Text(u8char("傅里叶级数数量"));
+								ImGui::SameLine();
 								ImGui::PushItemWidth(128);
-								if (ImGui::BeginCombo(u8char("FFT Size"), fft_size_name[fft_size_selected_idx])) {
+								if (ImGui::BeginCombo(u8char("##傅里叶级数数量"), fft_size_name[fft_size_selected_idx])) {
 									for (int n = 0; n < IM_ARRAYSIZE(fft_size_name); n++) {
 										const bool is_selected = (fft_size_selected_idx == n);
 										//如果ImGui::Selectable(...)返回真代表本帧被点击
@@ -335,40 +333,112 @@ void Fire(HINSTANCE hInstance) {
 									ImGui::EndCombo();
 								}
 								ImGui::PopItemWidth();
+
+								ImGui::TreePop();
 							}
-							if (ImGui::CollapsingHeader(u8char("Drawing Settings"))) {
-								ImGui::SliderInt("Draw count", addr(draw_cnt), 1, p_cfg->fft_size);
-								p_cfg->draw_freq_cnt = draw_cnt;
+							if (ImGui::TreeNode(u8char("样式"))) {
+								if (ImGui::TreeNode(u8char("形状设置"))) {
+									ImGui::AlignTextToFramePadding();
+									ImGui::Text(u8char("形状"));
+									ImGui::SameLine();
+									ImGui::PushItemWidth(128);
+									if (ImGui::BeginCombo(u8char("##形状"), draw_shape_name[draw_shape_selected_idx])) {
+										for (int n = 0; n < IM_ARRAYSIZE(draw_shape_name); n++) {
+											const bool is_selected = (draw_shape_selected_idx == n);
+											//如果ImGui::Selectable(...)返回真代表本帧被点击
+											if (ImGui::Selectable(draw_shape_name[n], is_selected)) {
+												draw_shape_selected_idx = n;
+												//更新设置
+												p_cfg->draw_shape_config.draw_shape_style = draw_shape_value[draw_shape_selected_idx];
+											}
+											// Set the initial focus when opening the combo (scrolling + keyboard navigation focus)
+											if (is_selected) {
+												ImGui::SetItemDefaultFocus();
+											}
+										}
+										ImGui::EndCombo();
+									}
+									ImGui::PopItemWidth();
+
+									ImGui::AlignTextToFramePadding();
+									ImGui::Text(u8char("线条粗细"));
+									ImGui::SameLine();
+									uniform_temp_float = Ctx_Pack.config_ctx.cfg.draw_shape_config.line_width_multiplier;
+									ImGui::SliderFloat(u8char("##"), addr(uniform_temp_float), 0.0f, 64.0f);
+									Ctx_Pack.config_ctx.cfg.draw_shape_config.line_width_multiplier = uniform_temp_float;
+
+									ImGui::TreePop();
+								}
+
+								ImGui::AlignTextToFramePadding();
+								ImGui::Text(u8char("渲染数量"));
+								ImGui::SameLine();
+								uniform_temp_i32 = p_cfg->draw_freq_cnt;
+								ImGui::SliderInt("##渲染数量", addr(uniform_temp_i32), 1, p_cfg->fft_size);
+								p_cfg->draw_freq_cnt = abs(uniform_temp_i32); // 有点傻逼的写法，直接assert完了呗
 
 								p_cfg->show_window_frame = false;
 
-								ImGui::SliderFloat("Amp Factor", addr(amp_factor), 0.0, 64.0);
-								p_cfg->amp_factor = amp_factor;
+								ImGui::AlignTextToFramePadding();
+								ImGui::Text(u8char("频谱高度"));
+								ImGui::SameLine();
+								uniform_temp_float = p_cfg->amp_multiplier;
+								ImGui::SliderFloat("##频谱高度", addr(uniform_temp_float), 0.0, 64.0);
+								p_cfg->amp_multiplier = uniform_temp_float;
 								if (ImGui::IsItemActive()) {
 									p_cfg->show_window_frame = true;
 								}
 
-								ImGui::SliderInt("Window Height", addr(wnd_height), 1, screenY);
+								ImGui::AlignTextToFramePadding();
+								ImGui::Text(u8char("窗口高度"));
+								ImGui::SameLine();
+								window_height = p_cfg->window_height;
+								ImGui::SliderInt("##窗口高度", addr(window_height), 1, screenY);
 								if (ImGui::IsItemActive()) {
 									p_cfg->show_window_frame = true;
 								}
 								if (ImGui::IsItemDeactivated()) {
 									//只有松开的时候才更新因为更新窗口大小做的工作比较费时间
-									p_cfg->window_height = wnd_height;
+									p_cfg->window_height = window_height;
 								}
 
-								ImGui::ColorEdit4("MyColor##3", (float*)&color4,
-												  ImGuiColorEditFlags_NoInputs |
-												  ImGuiColorEditFlags_NoLabel |
-												  ImGuiColorEditFlags_Float |
-												  ImGuiColorEditFlags_AlphaPreview |
-												  ImGuiColorEditFlags_AlphaBar
-								);
-								p_cfg->solid_color.r = color4.x;
-								p_cfg->solid_color.g = color4.y;
-								p_cfg->solid_color.b = color4.z;
-								p_cfg->solid_color.a = color4.w;
+								//ImGui::AlignTextToFramePadding();
+								//ImGui::Text(u8char("线条粗细"));
+								//ImGui::SameLine();
+								//ImGui::ColorEdit4("MyColor##3", (float*)&color4,
+								//				  ImGuiColorEditFlags_NoInputs |
+								//				  ImGuiColorEditFlags_NoLabel |
+								//				  ImGuiColorEditFlags_Float |
+								//				  ImGuiColorEditFlags_AlphaPreview |
+								//				  ImGuiColorEditFlags_AlphaBar
+								//);
+								//p_cfg->solid_color.r = color4.x;
+								//p_cfg->solid_color.g = color4.y;
+								//p_cfg->solid_color.b = color4.z;
+								//p_cfg->solid_color.a = color4.w;
+
+								ImGui::TreePop();
 							}
+							/*
+							* 工作线程状态
+							*/
+							ImGui::Separator();
+							ImGui::Text(u8char("工作线程状态: "));
+							ImGui::SameLine();
+							if (Ctx_Pack.content_ctx.thread_ready.is_locked()) {
+								ImGui::TextColored(ImVec4(0, 1, 0, 1), u8char("运行中"));
+							} else {
+								ImGui::TextColored(ImVec4(0.5, 0.5, 0.5, 1), u8char("停止"));
+							}
+							ImGui::Text(u8char("声卡名称: %s"), Ctx_Pack.content_ctx.device_name.c_str());
+							ImGui::Text(u8char("渲染时长: %f ms"), Ctx_Pack.content_ctx.cur_frame_time);
+							ImGui::Text(u8char("UpdateLayeredWindow: %f ms"), Ctx_Pack.content_ctx.update_layered_time);
+							ImGui::Text(u8char("渲染线程闲置时长: %f ms"), Ctx_Pack.content_ctx.cur_frame_sleep_time);
+							ImGui::Text(u8char("计算傅里叶时长: %f ms"), Ctx_Pack.content_ctx.fft_calc_time);
+							ImGui::Text(u8char("音频处理线程闲置时长: %f ms"), Ctx_Pack.content_ctx.fft_sleep_time);
+							ImGui::Text(u8char("捕获采样数: %d"), Ctx_Pack.content_ctx.samples_cap);
+							ImGui::Text(u8char("渲染线程冲突: %d times"), Ctx_Pack.content_ctx.render_thread_aquire_fft_buffer_failed);
+							ImGui::Text(u8char("音频线程冲突: %d times"), Ctx_Pack.content_ctx.audio_thread_aquire_fft_buffer_failed);
 							ImGui::EndChild();
 						}
 						ImGui::EndTabItem();
@@ -403,6 +473,8 @@ void Fire(HINSTANCE hInstance) {
 	* 资源清理
 	*/
 	#pragma region MyRegion
+
+	//TODO: 退出前设置信号量通知他线程关闭，否则容易出事
 
 	Shell_NotifyIcon(NIM_DELETE, &notify_icon_data);
 

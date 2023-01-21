@@ -72,6 +72,7 @@ unsigned __stdcall Suancai::Vifft::__Vifft_content_window_message_loop_wrapper(v
 		SUANCAI_THROW("初始化D2D", -1, Suancai::Common_Exception::Base_exception);
 	}
 
+	//TODO: 
 	p_d2d_ctx->p_dcrt->SetTransform(
 		D2D1::Matrix3x2F::Scale(D2D1::SizeF(screenX, -256))
 		*
@@ -79,8 +80,12 @@ unsigned __stdcall Suancai::Vifft::__Vifft_content_window_message_loop_wrapper(v
 	);
 
 	D2D1_ROUNDED_RECT rr;
-	rr.radiusX = 100;
-	rr.radiusY = 100;
+	rr.radiusX = 0.0f;
+	rr.radiusY = 0.0f;
+
+	D2D1_POINT_2F pnt_from, pnt_to;
+
+	D2D1_MATRIX_3X2_F tranfrom;
 
 	BOOL shouldContinue = TRUE;
 	MSG msg;
@@ -98,6 +103,7 @@ unsigned __stdcall Suancai::Vifft::__Vifft_content_window_message_loop_wrapper(v
 	float h = 0;
 	float r = 0, g = 0, b = 0;
 	u32 cur_frame_time = 0;
+	Vifft_config_ctx::Vifft_Config::Draw_Shape_Config::Draw_Shape_Style cur_drawing_style;
 	while (true) {
 		//获取性能模式
 		Vifft_config_ctx::Vifft_Config::Power_Mode cur_power_mode = p_app_cfg->power_mode;
@@ -155,24 +161,53 @@ unsigned __stdcall Suancai::Vifft::__Vifft_content_window_message_loop_wrapper(v
 				drawing_cnt = cur_fft_size;
 			}
 			drawing_cnt_f = (float)drawing_cnt;
-			for (int i = 0; i < drawing_cnt; i++) {
+
+			//获取当前渲染样式
+			cur_drawing_style = p_app_cfg->draw_shape_config.draw_shape_style;
+			//计算起始点
+			if (cur_drawing_style == Vifft_config_ctx::Vifft_Config::Draw_Shape_Config::Draw_Shape_Style::Line) {
+				pnt_from.x = 0.0f;
+				pnt_from.y = 0.0f;
+			}
+			for (u32 i = 0; i < drawing_cnt; i++) {
 				ImGui::ColorConvertHSVtoRGB(i / drawing_cnt_f + p_fft_series[i].real, 1.0f, 1.0f, r, g, b);
 				color4.r = /*p_app_cfg->solid_color.*/r;
 				color4.g = /*p_app_cfg->solid_color.*/g;
 				color4.b = /*p_app_cfg->solid_color.*/b;
 				p_d2d_ctx->p_solid_color_brush->SetColor(color4);
-				rr.rect = D2D1::RectF(
-					i / drawing_cnt_f,
-					0,
-					i / drawing_cnt_f + 1.0f / drawing_cnt_f,
-					p_fft_series[i].real * p_app_cfg->amp_factor
-				);
-				p_d2d_ctx->p_dcrt->FillRoundedRectangle(
-					rr,
-					p_d2d_ctx->p_solid_color_brush
-				);
+				if (cur_drawing_style == Vifft_config_ctx::Vifft_Config::Draw_Shape_Config::Draw_Shape_Style::Line) {
+					pnt_to.x = (2.0f * i + 1.0f) / 2.0f / drawing_cnt_f;
+					pnt_to.y = p_fft_series[i].real * p_app_cfg->amp_multiplier;
+					p_d2d_ctx->p_dcrt->GetTransform(addr(tranfrom));
+					p_d2d_ctx->p_dcrt->DrawLine(pnt_from, pnt_to, p_d2d_ctx->p_solid_color_brush, p_app_cfg->draw_shape_config.line_width_multiplier / tranfrom.m11);
+					pnt_from = pnt_to;
+				} else if (cur_drawing_style == Vifft_config_ctx::Vifft_Config::Draw_Shape_Config::Draw_Shape_Style::Rounded_Rect) {
+					rr.rect = D2D1::RectF(
+						i / drawing_cnt_f,
+						0,
+						i / drawing_cnt_f + 1.0f / drawing_cnt_f,
+						p_fft_series[i].real * p_app_cfg->amp_multiplier
+					);
+					rr.radiusX = 4.0f / drawing_cnt_f;
+					rr.radiusY = 4.0f / drawing_cnt_f;
+					p_d2d_ctx->p_dcrt->FillRoundedRectangle(
+						rr,
+						p_d2d_ctx->p_solid_color_brush
+					);
+				}
 			}
-			p_d2d_ctx->p_solid_color_brush->SetOpacity(0.382);
+			//连接结束点
+			if (cur_drawing_style == Vifft_config_ctx::Vifft_Config::Draw_Shape_Config::Draw_Shape_Style::Line) {
+				pnt_to.x = 1.0f;
+				pnt_to.y = 0.0f;
+				p_d2d_ctx->p_dcrt->DrawLine(pnt_from, pnt_to, p_d2d_ctx->p_solid_color_brush, p_app_cfg->draw_shape_config.line_width_multiplier / tranfrom.m11);
+			}
+			//p_d2d_ctx->p_path_sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+			//p_d2d_ctx->p_path_sink->Close();
+
+			//p_d2d_ctx->p_dcrt->FillGeometry(p_d2d_ctx->p_path, p_d2d_ctx->p_solid_color_brush);
+
+			p_d2d_ctx->p_solid_color_brush->SetOpacity(0.382f);
 			if (p_app_cfg->show_window_frame) {
 				p_d2d_ctx->p_dcrt->FillRectangle(
 					D2D1::RectF(0, 0, 1, 1),
@@ -275,13 +310,15 @@ unsigned __stdcall Suancai::Vifft::__Audio_capture_wrapper(void* p_arg) {
 	}
 
 	u32 channels = p_cap->channels;
+	float float_channels = (float)channels;
 
 	IAudioCaptureClient* p_cap_cli = p_cap->get_capture_client();
 
 	u32 nums_available = 0;
 	float* p_data = nullptr;
 
-	float* p_fft_sample_buffer = new float[cur_fft_size];
+	float* p_fft_sample_buffer = new float[cur_fft_size * channels];
+	u32 sample_frame_step = channels * sizeof(float);
 	u32 buffer_start = 0;
 	ZeroMemory(p_fft_sample_buffer, sizeof(float) * cur_fft_size);
 
@@ -308,6 +345,7 @@ unsigned __stdcall Suancai::Vifft::__Audio_capture_wrapper(void* p_arg) {
 		cur_frame_time = p_app_cfg->update_rate_ms;
 		
 		samples_cap = 0;
+		has_samples = false;
 		p_cap_cli->GetNextPacketSize(addr(nums_available));
 		while (nums_available > 0) {
 			has_samples = true;
@@ -324,8 +362,10 @@ unsigned __stdcall Suancai::Vifft::__Audio_capture_wrapper(void* p_arg) {
 				nums_available = cur_fft_size;
 			}
 			for (u32 i = 0; i < nums_available; i++) {
-				p_fft_sample_buffer[buffer_start] = p_data[channels * i];
-				//p_fft_sample_buffer[buffer_start + 1] = p_data[2 * i + 1];
+				p_fft_sample_buffer[buffer_start] = 0.0f;
+				for (u32 k = 0; k < channels; k++) {
+					p_fft_sample_buffer[buffer_start] += p_data[i * channels + k] / float_channels;
+				}
 				buffer_start += 1;
 				buffer_start %= cur_fft_size;
 			}
@@ -475,6 +515,16 @@ BOOL Suancai::Vifft::Vifft_content_ctx::Vifft_d2d_drawing_context::init_d2d_back
 		SUANCAI_THROW("初始化错误: CreateSolidColorBrush", -1, Suancai::Common_Exception::Base_exception);
 	}
 
+	//hr = this->p_d2d_fac->CreatePathGeometry(addr(this->p_path));
+	//if (SUCCEEDED(hr) == FALSE) {
+	//	SUANCAI_THROW("初始化错误: CreatePathGeometry", -1, Suancai::Common_Exception::Base_exception);
+	//}
+
+	//hr = this->p_path->Open(addr(this->p_path_sink));
+	//if (SUCCEEDED(hr) == FALSE) {
+	//	SUANCAI_THROW("初始化错误: this->p_path->Open", -1, Suancai::Common_Exception::Base_exception);
+	//}
+
 	return TRUE;
 
 	//D2D1_GRADIENT_STOP gradient_stops[5];
@@ -543,6 +593,7 @@ Suancai::Vifft::Vifft_content_ctx::Vifft_d2d_drawing_context::~Vifft_d2d_drawing
 	//Safe_Release(this->p_gradient_stop_collection);
 	//Safe_Release(this->p_linear_gradient_brush);
 	Safe_Release(this->p_dcrt);
+	//Safe_Release(this->p_path);
 	Safe_Release(this->p_d2d_fac);
 
 	//TODO: NULL means?
