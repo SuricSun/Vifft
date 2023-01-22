@@ -138,6 +138,27 @@ unsigned __stdcall Suancai::Vifft::__Vifft_content_window_message_loop_wrapper(v
 				SetWindowPos(p_ctnt_ctx->hwnd, NULL, 0, screenY - wnd_height, screenX, wnd_height, SWP_NOACTIVATE);
 				p_d2d_ctx->resize_mem_dc_And_Render_target();
 			}
+			//是否没有音频数据，需要等待Event
+			if (p_aud_ctx->audio_ready_state == 0) {
+				p_d2d_ctx->p_dcrt->BeginDraw();
+				p_d2d_ctx->p_dcrt->Clear(D2D1::ColorF(0, 0, 0, 0));
+				p_d2d_ctx->p_dcrt->EndDraw();
+				if (UpdateLayeredWindow(
+					p_d2d_ctx->hwnd,
+					p_d2d_ctx->dc,
+					&p_d2d_ctx->wnd_pos,
+					&p_d2d_ctx->wnd_size,
+					p_d2d_ctx->mem_dc,
+					&p_d2d_ctx->point_00,
+					0,
+					&p_d2d_ctx->blend_config,
+					ULW_ALPHA) == FALSE) {
+
+					DestroyWindow(p_ctnt_ctx->hwnd);
+					SUANCAI_THROW("无法设置窗口透明属性(UpdateLayeredWindow)", -1, Suancai::Common_Exception::Base_exception);
+				}
+				WaitForSingleObject(p_aud_ctx->audio_ready_event, INFINITE);
+			}
 			//一直获取fft（如果获取不到fft，渲染之前的fft的话，和不渲染是一样的，不如一直等待）
 			while (p_aud_ctx->fft_lock.try_get_With_locked_data((void**)addr(p_fft_series_new)) == false);
 			//成功获取
@@ -236,37 +257,37 @@ unsigned __stdcall Suancai::Vifft::__Vifft_content_window_message_loop_wrapper(v
 				&p_d2d_ctx->blend_config,
 				ULW_ALPHA) == FALSE) {
 
-				SUANCAI_THROW("无法设置窗口透明属性(UpdateLayeredWindow)", -1, Suancai::Common_Exception::Base_exception);
 				DestroyWindow(p_ctnt_ctx->hwnd);
-				continue;
+				SUANCAI_THROW("无法设置窗口透明属性(UpdateLayeredWindow)", -1, Suancai::Common_Exception::Base_exception);
 			}
 			if (IsWindowVisible(p_ctnt_ctx->hwnd)) {
 				BringWindowToTop(p_ctnt_ctx->hwnd);
 			}
 			QueryPerformanceCounter(addr(end_cnt));
 			p_ctnt_ctx->update_layered_time = ((float)end_cnt.QuadPart - (float)start_cnt.QuadPart) / (float)cps.QuadPart * 1000.0f;
-		}
-		//根据性能模式选择
-		if (cur_power_mode == Vifft_config_ctx::Vifft_Config::Power_Mode::Low) {
-			QueryPerformanceCounter(addr(start_cnt));
-			Sleep(p_app_cfg->update_rate_ms);
-			QueryPerformanceCounter(addr(end_cnt));
-			p_ctnt_ctx->cur_frame_sleep_time = ((float)end_cnt.QuadPart - (float)start_cnt.QuadPart) / (float)cps.QuadPart * 1000.0f;
-		} else if (cur_power_mode == Vifft_config_ctx::Vifft_Config::Power_Mode::High) {
-			//循环直到16ms到来
-			QueryPerformanceCounter(addr(start_cnt));
-			while (true) {
-				QueryPerformanceCounter(addr(this_frame));
-				if ((((float)this_frame.QuadPart - (float)last_frame.QuadPart) / (float)cps.QuadPart * 1000.0f) >= cur_frame_time) {
-					//可以继续
-					break;
-				} else {
-					//让出时间片
-					Sleep(0);
+
+			//根据性能模式选择
+			if (cur_power_mode == Vifft_config_ctx::Vifft_Config::Power_Mode::Low) {
+				QueryPerformanceCounter(addr(start_cnt));
+				Sleep(p_app_cfg->update_rate_ms);
+				QueryPerformanceCounter(addr(end_cnt));
+				p_ctnt_ctx->cur_frame_sleep_time = ((float)end_cnt.QuadPart - (float)start_cnt.QuadPart) / (float)cps.QuadPart * 1000.0f;
+			} else if (cur_power_mode == Vifft_config_ctx::Vifft_Config::Power_Mode::High) {
+				//循环直到16ms到来
+				QueryPerformanceCounter(addr(start_cnt));
+				while (true) {
+					QueryPerformanceCounter(addr(this_frame));
+					if ((((float)this_frame.QuadPart - (float)last_frame.QuadPart) / (float)cps.QuadPart * 1000.0f) >= cur_frame_time) {
+						//可以继续
+						break;
+					} else {
+						//让出时间片
+						Sleep(0);
+					}
 				}
+				QueryPerformanceCounter(addr(end_cnt));
+				p_ctnt_ctx->cur_frame_sleep_time = ((float)end_cnt.QuadPart - (float)start_cnt.QuadPart) / (float)cps.QuadPart * 1000.0f;
 			}
-			QueryPerformanceCounter(addr(end_cnt));
-			p_ctnt_ctx->cur_frame_sleep_time = ((float)end_cnt.QuadPart - (float)start_cnt.QuadPart) / (float)cps.QuadPart * 1000.0f;
 		}
 	}
 
@@ -288,6 +309,9 @@ unsigned __stdcall Suancai::Vifft::__Audio_capture_wrapper(void* p_arg) {
 
 	LARGE_INTEGER last_frame = {};
 	LARGE_INTEGER this_frame = {};
+
+	LARGE_INTEGER wnd_start = {};
+	LARGE_INTEGER wnd_cur = {};
 
 	QueryPerformanceFrequency(addr(cps));
 
@@ -335,6 +359,7 @@ unsigned __stdcall Suancai::Vifft::__Audio_capture_wrapper(void* p_arg) {
 	u32 samples_cap = 0;
 	bool has_samples = false;
 	u8 cur_frame_time = 0;
+	QueryPerformanceCounter(addr(wnd_start));
 	while (true) {
 		//获取性能模式
 		Vifft_config_ctx::Vifft_Config::Power_Mode cur_power_mode = p_app_cfg->power_mode;
@@ -373,6 +398,12 @@ unsigned __stdcall Suancai::Vifft::__Audio_capture_wrapper(void* p_arg) {
 			p_cap_cli->GetNextPacketSize(addr(nums_available));
 		}
 		if (has_samples) {
+			//更新时间窗口
+			QueryPerformanceCounter(addr(wnd_start));
+			if (p_aud_ctx->audio_ready_state != 1) {
+				p_aud_ctx->audio_ready_state = 1;
+				SetEvent(p_aud_ctx->audio_ready_event);
+			}
 			//做傅里叶拿不到就不计算
 			if (p_aud_ctx->fft_lock.try_get()) {
 				//（拿到fft锁才能init）是否要重新init buffer
@@ -393,13 +424,23 @@ unsigned __stdcall Suancai::Vifft::__Audio_capture_wrapper(void* p_arg) {
 				p_ctnt_ctx->audio_thread_aquire_fft_buffer_failed++;
 			}
 		}
+		//计算当前时间窗口
+		//已经设过了就不设置
+		if (p_aud_ctx->audio_ready_state != 0) {
+			QueryPerformanceCounter(addr(wnd_cur));
+			if ((((float)wnd_cur.QuadPart - (float)wnd_start.QuadPart) / (float)cps.QuadPart) >= 8.0f) {
+				//大于8秒
+				ResetEvent(p_aud_ctx->audio_ready_event);
+				p_aud_ctx->audio_ready_state = 0;
+			}
+		}
 		p_ctnt_ctx->samples_cap = samples_cap;
 		//根据性能模式选择
 		if (cur_power_mode == Vifft_config_ctx::Vifft_Config::Power_Mode::Low) {
 			QueryPerformanceCounter(addr(start_cnt));
 			Sleep(p_app_cfg->update_rate_ms);
 			QueryPerformanceCounter(addr(end_cnt));
-			p_ctnt_ctx->cur_frame_sleep_time = ((float)end_cnt.QuadPart - (float)start_cnt.QuadPart) / (float)cps.QuadPart * 1000.0f;
+			p_ctnt_ctx->fft_sleep_time = ((float)end_cnt.QuadPart - (float)start_cnt.QuadPart) / (float)cps.QuadPart * 1000.0f;
 		} else if (cur_power_mode == Vifft_config_ctx::Vifft_Config::Power_Mode::High) {
 			//循环直到16ms到来
 			QueryPerformanceCounter(addr(start_cnt));
@@ -443,6 +484,20 @@ unsigned __stdcall Suancai::Vifft::__Audio_capture(void* p_arg) {
 		sdel(p_e);
 	}
 	return 0;
+}
+
+Suancai::Vifft::Vifft_content_ctx::Vifft_audio_capture_ctx::Vifft_audio_capture_ctx() {
+
+	this->audio_ready_event = CreateEvent(NULL, TRUE, FALSE, NULL);
+
+	if (this->audio_ready_event == NULL) {
+		SUANCAI_THROW("this->audio_ready_event = CreateEvent(NULL, TRUE, FALSE, NULL);", -1, Suancai::Common_Exception::Base_exception);
+	}
+}
+
+Suancai::Vifft::Vifft_content_ctx::Vifft_audio_capture_ctx::~Vifft_audio_capture_ctx() {
+
+	CloseHandle(this->audio_ready_event);
 }
 
 Suancai::Vifft::Vifft_content_ctx::Vifft_d2d_drawing_context::Vifft_d2d_drawing_context() {

@@ -103,6 +103,13 @@ namespace Suancai {
 				Audio_Capturer cap;
 				FFT fft;
 				Simple_Mutex fft_lock;
+
+				// 如果为0表示没有音频数据，应该等待event
+				u32 audio_ready_state = MAX_U32;
+				HANDLE audio_ready_event = NULL;
+
+				Vifft_audio_capture_ctx();
+				~Vifft_audio_capture_ctx();
 			};
 			class Vifft_d2d_drawing_context {
 			public:

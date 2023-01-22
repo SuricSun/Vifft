@@ -227,7 +227,7 @@ void Fire(HINSTANCE hInstance) {
 	//默认0，也就是1024samples
 	int draw_shape_selected_idx = 0;
 
-	i32 window_height = 0;
+	i32 window_height = p_cfg->window_height;
 	i32 uniform_temp_i32 = 0;
 	float uniform_temp_float = 0.0f;
 
@@ -392,7 +392,6 @@ void Fire(HINSTANCE hInstance) {
 								ImGui::AlignTextToFramePadding();
 								ImGui::Text(u8char("窗口高度"));
 								ImGui::SameLine();
-								window_height = p_cfg->window_height;
 								ImGui::SliderInt("##窗口高度", addr(window_height), 1, screenY);
 								if (ImGui::IsItemActive()) {
 									p_cfg->show_window_frame = true;
