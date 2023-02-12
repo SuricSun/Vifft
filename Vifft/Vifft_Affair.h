@@ -67,6 +67,7 @@ namespace Suancai {
 						Line = 0, Rounded_Rect = 1
 					};
 					Draw_Shape_Style draw_shape_style = Draw_Shape_Style::Line;
+					boolean is_shape_symmetric = true;
 					float line_width_multiplier = 4.0f;
 				};
 				volatile Power_Mode power_mode = Power_Mode::Low;
@@ -78,7 +79,7 @@ namespace Suancai {
 				volatile u32 window_height = 256;
 				volatile float amp_multiplier = 4.0f;
 				//u32 draw_start_freq = 0;
-				volatile u32 draw_freq_cnt = 512;
+				volatile u32 draw_freq_cnt = 256;
 				volatile bool show_window_frame = false;
 				volatile Color4 solid_color;
 			};
@@ -105,6 +106,7 @@ namespace Suancai {
 				Simple_Mutex fft_lock;
 
 				// 如果为0表示没有音频数据，应该等待event
+				// 太长时间电脑不播放音频的话，会设置为audio not ready，此时渲染线程会等待事件句柄
 				u32 audio_ready_state = MAX_U32;
 				HANDLE audio_ready_event = NULL;
 

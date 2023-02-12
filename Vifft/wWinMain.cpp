@@ -202,9 +202,10 @@ void Fire(HINSTANCE hInstance) {
 	ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings;
 
 	const char* update_interval_name[] = {u8char("30fps"), u8char("60fps")};
-	const u32 update_interval_value[] = {33, 17, 0};
+	const u32 update_interval_value[] = {32, 16};
 	//默认0，也就是30fps
 	int update_interval_selected_idx = 0;
+	int update_interval_arr_len = ARRAYSIZE(update_interval_name);
 
 	const char* fft_size_name[] = {u8char("1024"), u8char("2048")};
 	const u32 fft_size_value[] = {1024, 2048};
@@ -218,6 +219,7 @@ void Fire(HINSTANCE hInstance) {
 	};
 	//默认0，也就是1024samples
 	int power_mode_selected_idx = 0;
+	int power_mode_arr_len = ARRAYSIZE(power_mode_name);
 
 	const char* draw_shape_name[] = {u8char("线条"), u8char("圆角矩形")};
 	const Vifft_config_ctx::Vifft_Config::Draw_Shape_Config::Draw_Shape_Style draw_shape_value[] = {
@@ -267,6 +269,18 @@ void Fire(HINSTANCE hInstance) {
 				if (ImGui::BeginTabBar(u8char("##root_tab"), ImGuiTabBarFlags_::ImGuiTabBarFlags_None)) {
 					if (ImGui::BeginTabItem(u8char("工作线程设置"), nullptr, ImGuiTabItemFlags_::ImGuiTabItemFlags_None)) {
 						if (ImGui::BeginChild(u8char("##root_tab_child"))) {
+							if (ImGui::Button(u8char("一键高资源占用"))) {
+								power_mode_selected_idx = power_mode_arr_len - 1;
+								p_cfg->power_mode = power_mode_value[power_mode_selected_idx];
+								update_interval_selected_idx = update_interval_arr_len - 1;
+								p_cfg->update_rate_ms = update_interval_value[update_interval_selected_idx];
+							}
+							if (ImGui::Button(u8char("一键低资源占用"))) {
+								power_mode_selected_idx = 0;
+								p_cfg->power_mode = power_mode_value[power_mode_selected_idx];
+								update_interval_selected_idx = 0;
+								p_cfg->update_rate_ms = update_interval_value[update_interval_selected_idx];
+							}
 							if (ImGui::TreeNode(u8char("性能"))) {
 								ImGui::AlignTextToFramePadding();
 								ImGui::Text(u8char("性能选项"));
@@ -337,38 +351,44 @@ void Fire(HINSTANCE hInstance) {
 								ImGui::TreePop();
 							}
 							if (ImGui::TreeNode(u8char("样式"))) {
-								if (ImGui::TreeNode(u8char("形状设置"))) {
-									ImGui::AlignTextToFramePadding();
-									ImGui::Text(u8char("形状"));
-									ImGui::SameLine();
-									ImGui::PushItemWidth(128);
-									if (ImGui::BeginCombo(u8char("##形状"), draw_shape_name[draw_shape_selected_idx])) {
-										for (int n = 0; n < IM_ARRAYSIZE(draw_shape_name); n++) {
-											const bool is_selected = (draw_shape_selected_idx == n);
-											//如果ImGui::Selectable(...)返回真代表本帧被点击
-											if (ImGui::Selectable(draw_shape_name[n], is_selected)) {
-												draw_shape_selected_idx = n;
-												//更新设置
-												p_cfg->draw_shape_config.draw_shape_style = draw_shape_value[draw_shape_selected_idx];
-											}
-											// Set the initial focus when opening the combo (scrolling + keyboard navigation focus)
-											if (is_selected) {
-												ImGui::SetItemDefaultFocus();
-											}
+								ImGui::AlignTextToFramePadding();
+								ImGui::Text(u8char("形状"));
+								ImGui::SameLine();
+								ImGui::PushItemWidth(128);
+								if (ImGui::BeginCombo(u8char("##形状"), draw_shape_name[draw_shape_selected_idx])) {
+									for (int n = 0; n < IM_ARRAYSIZE(draw_shape_name); n++) {
+										const bool is_selected = (draw_shape_selected_idx == n);
+										//如果ImGui::Selectable(...)返回真代表本帧被点击
+										if (ImGui::Selectable(draw_shape_name[n], is_selected)) {
+											draw_shape_selected_idx = n;
+											//更新设置
+											p_cfg->draw_shape_config.draw_shape_style = draw_shape_value[draw_shape_selected_idx];
 										}
-										ImGui::EndCombo();
+										// Set the initial focus when opening the combo (scrolling + keyboard navigation focus)
+										if (is_selected) {
+											ImGui::SetItemDefaultFocus();
+										}
 									}
-									ImGui::PopItemWidth();
-
-									ImGui::AlignTextToFramePadding();
-									ImGui::Text(u8char("线条粗细"));
-									ImGui::SameLine();
-									uniform_temp_float = Ctx_Pack.config_ctx.cfg.draw_shape_config.line_width_multiplier;
-									ImGui::SliderFloat(u8char("##"), addr(uniform_temp_float), 0.0f, 64.0f);
-									Ctx_Pack.config_ctx.cfg.draw_shape_config.line_width_multiplier = uniform_temp_float;
-
-									ImGui::TreePop();
+									ImGui::EndCombo();
 								}
+								ImGui::PopItemWidth();
+
+								if (p_cfg->draw_shape_config.is_shape_symmetric) {
+									ImGui::Text(u8char("对称已开启"));
+								} else {
+									ImGui::Text(u8char("对称已关闭"));
+								}
+								ImGui::SameLine();
+								if (ImGui::Button(u8char("开启/关闭对称"))) {
+									p_cfg->draw_shape_config.is_shape_symmetric = !(p_cfg->draw_shape_config.is_shape_symmetric);
+								}
+
+								ImGui::AlignTextToFramePadding();
+								ImGui::Text(u8char("线条粗细"));
+								ImGui::SameLine();
+								uniform_temp_float = Ctx_Pack.config_ctx.cfg.draw_shape_config.line_width_multiplier;
+								ImGui::SliderFloat(u8char("##线条粗细"), addr(uniform_temp_float), 0.0f, 64.0f);
+								Ctx_Pack.config_ctx.cfg.draw_shape_config.line_width_multiplier = uniform_temp_float;
 
 								ImGui::AlignTextToFramePadding();
 								ImGui::Text(u8char("渲染数量"));
@@ -476,6 +496,10 @@ void Fire(HINSTANCE hInstance) {
 	//TODO: 退出前设置信号量通知他线程关闭，否则容易出事
 
 	Shell_NotifyIcon(NIM_DELETE, &notify_icon_data);
+
+	ImGui_ImplDX11_Shutdown();
+	ImGui_ImplWin32_Shutdown();
+	ImGui::DestroyContext();
 
 	#pragma endregion
 }

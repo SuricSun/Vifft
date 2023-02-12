@@ -46,7 +46,7 @@ unsigned __stdcall Suancai::Vifft::__Vifft_content_window_message_loop_wrapper(v
 	int screenX = GetSystemMetrics(SM_CXSCREEN);
 	int screenY = GetSystemMetrics(SM_CYSCREEN);
 
-	u32 wnd_height = p_app_cfg->window_height;
+	i32 wnd_height = p_app_cfg->window_height;
 
 	//Create the window.
 	p_ctnt_ctx->hwnd = CreateWindowExW(
@@ -74,9 +74,9 @@ unsigned __stdcall Suancai::Vifft::__Vifft_content_window_message_loop_wrapper(v
 
 	//TODO: 
 	p_d2d_ctx->p_dcrt->SetTransform(
-		D2D1::Matrix3x2F::Scale(D2D1::SizeF(screenX, -256))
+		D2D1::Matrix3x2F::Scale(D2D1::SizeF(screenX, -wnd_height))
 		*
-		D2D1::Matrix3x2F::Translation(D2D1::SizeF(0, 256))
+		D2D1::Matrix3x2F::Translation(D2D1::SizeF(0, wnd_height))
 	);
 
 	D2D1_ROUNDED_RECT rr;
@@ -85,15 +85,17 @@ unsigned __stdcall Suancai::Vifft::__Vifft_content_window_message_loop_wrapper(v
 
 	D2D1_POINT_2F pnt_from, pnt_to;
 
-	D2D1_MATRIX_3X2_F tranfrom;
+	D2D1_MATRIX_3X2_F transform;
 
 	BOOL shouldContinue = TRUE;
 	MSG msg;
 	u32 cur_fft_size = p_app_cfg->fft_size;
 	FFT::Complex* p_fft_series = new FFT::Complex[cur_fft_size];
-	FFT::Complex* p_fft_series_new;
-	u32 drawing_cnt = 0;
-	float drawing_cnt_f = 0.0f;
+	FFT::Complex* p_fft_series_new = nullptr;
+	u32 drawing_cnt_idx = 0;
+	u32 drawing_cnt_changable = 0;
+	u32 drawing_cnt_actual = 0;
+	float drawing_cnt_modified_f = 0.0f;
 	D2D1::ColorF color4 = D2D1::ColorF(
 		p_app_cfg->solid_color.r, 
 		p_app_cfg->solid_color.g, 
@@ -102,8 +104,10 @@ unsigned __stdcall Suancai::Vifft::__Vifft_content_window_message_loop_wrapper(v
 	);
 	float h = 0;
 	float r = 0, g = 0, b = 0;
+	float pos_i = 0.0f;
 	u32 cur_frame_time = 0;
 	Vifft_config_ctx::Vifft_Config::Draw_Shape_Config::Draw_Shape_Style cur_drawing_style;
+	boolean is_shape_symmetric = false;
 	while (true) {
 		//获取性能模式
 		Vifft_config_ctx::Vifft_Config::Power_Mode cur_power_mode = p_app_cfg->power_mode;
@@ -171,57 +175,82 @@ unsigned __stdcall Suancai::Vifft::__Vifft_content_window_message_loop_wrapper(v
 			}
 			CopyMemory(p_fft_series, p_fft_series_new, sizeof(FFT::Complex) * cur_fft_size);
 			p_aud_ctx->fft_lock.release();
+
 			//开始渲染
 			p_d2d_ctx->p_dcrt->BeginDraw();
 			p_d2d_ctx->p_dcrt->Clear(D2D1::ColorF(0, 0, 0, 0));
 			//设置画刷透明度
 			p_d2d_ctx->p_solid_color_brush->SetOpacity(p_app_cfg->solid_color.a);
-			drawing_cnt = p_app_cfg->draw_freq_cnt;
-			//防止越界
-			if (drawing_cnt > cur_fft_size) {
-				drawing_cnt = cur_fft_size;
-			}
-			drawing_cnt_f = (float)drawing_cnt;
-
 			//获取当前渲染样式
 			cur_drawing_style = p_app_cfg->draw_shape_config.draw_shape_style;
+			is_shape_symmetric = p_app_cfg->draw_shape_config.is_shape_symmetric;
 			//计算起始点
 			if (cur_drawing_style == Vifft_config_ctx::Vifft_Config::Draw_Shape_Config::Draw_Shape_Style::Line) {
 				pnt_from.x = 0.0f;
 				pnt_from.y = 0.0f;
 			}
-			for (u32 i = 0; i < drawing_cnt; i++) {
-				ImGui::ColorConvertHSVtoRGB(i / drawing_cnt_f + p_fft_series[i].real, 1.0f, 1.0f, r, g, b);
-				color4.r = /*p_app_cfg->solid_color.*/r;
-				color4.g = /*p_app_cfg->solid_color.*/g;
-				color4.b = /*p_app_cfg->solid_color.*/b;
-				p_d2d_ctx->p_solid_color_brush->SetColor(color4);
-				if (cur_drawing_style == Vifft_config_ctx::Vifft_Config::Draw_Shape_Config::Draw_Shape_Style::Line) {
-					pnt_to.x = (2.0f * i + 1.0f) / 2.0f / drawing_cnt_f;
-					pnt_to.y = p_fft_series[i].real * p_app_cfg->amp_multiplier;
-					p_d2d_ctx->p_dcrt->GetTransform(addr(tranfrom));
-					p_d2d_ctx->p_dcrt->DrawLine(pnt_from, pnt_to, p_d2d_ctx->p_solid_color_brush, p_app_cfg->draw_shape_config.line_width_multiplier / tranfrom.m11);
-					pnt_from = pnt_to;
-				} else if (cur_drawing_style == Vifft_config_ctx::Vifft_Config::Draw_Shape_Config::Draw_Shape_Style::Rounded_Rect) {
-					rr.rect = D2D1::RectF(
-						i / drawing_cnt_f,
-						0,
-						i / drawing_cnt_f + 1.0f / drawing_cnt_f,
-						p_fft_series[i].real * p_app_cfg->amp_multiplier
-					);
-					rr.radiusX = 4.0f / drawing_cnt_f;
-					rr.radiusY = 4.0f / drawing_cnt_f;
-					p_d2d_ctx->p_dcrt->FillRoundedRectangle(
-						rr,
-						p_d2d_ctx->p_solid_color_brush
-					);
+			//获取绘画数量
+			drawing_cnt_idx = 0;
+			drawing_cnt_changable = p_app_cfg->draw_freq_cnt;
+			//防止越界
+			if (drawing_cnt_changable > cur_fft_size) {
+				drawing_cnt_changable = cur_fft_size;
+			}
+			drawing_cnt_modified_f = (float)drawing_cnt_changable;
+			if (is_shape_symmetric) {
+				drawing_cnt_modified_f *= 2;
+			}
+			for (u32 render_round = 0; render_round < 2; render_round++) {
+				for (; drawing_cnt_idx < drawing_cnt_changable; drawing_cnt_idx++) {
+					if (is_shape_symmetric) {
+						if (render_round == 1) {
+							pos_i = drawing_cnt_actual + (drawing_cnt_idx - (cur_fft_size - drawing_cnt_actual));
+						} else {
+							pos_i = drawing_cnt_idx;
+						}
+					} else {
+						pos_i = drawing_cnt_idx;
+					}
+					ImGui::ColorConvertHSVtoRGB(pos_i / drawing_cnt_modified_f + p_fft_series[drawing_cnt_idx].real, 1.0f, 1.0f, r, g, b);
+					color4.r = /*p_app_cfg->solid_color.*/r;
+					color4.g = /*p_app_cfg->solid_color.*/g;
+					color4.b = /*p_app_cfg->solid_color.*/b;
+					p_d2d_ctx->p_solid_color_brush->SetColor(color4);
+					if (cur_drawing_style == Vifft_config_ctx::Vifft_Config::Draw_Shape_Config::Draw_Shape_Style::Line) {
+						pnt_to.x = (pos_i + 0.5f) / drawing_cnt_modified_f;
+						pnt_to.y = p_fft_series[drawing_cnt_idx].real * p_app_cfg->amp_multiplier;
+						p_d2d_ctx->p_dcrt->GetTransform(addr(transform));
+						p_d2d_ctx->p_dcrt->DrawLine(pnt_from, pnt_to, p_d2d_ctx->p_solid_color_brush, p_app_cfg->draw_shape_config.line_width_multiplier / (transform.m11 + transform.m22));
+						pnt_from = pnt_to;
+					} else if (cur_drawing_style == Vifft_config_ctx::Vifft_Config::Draw_Shape_Config::Draw_Shape_Style::Rounded_Rect) {
+						rr.rect = D2D1::RectF(
+							pos_i / drawing_cnt_modified_f,
+							0,
+							pos_i / drawing_cnt_modified_f + 1.0f / drawing_cnt_modified_f,
+							p_fft_series[drawing_cnt_idx].real * p_app_cfg->amp_multiplier
+						);
+						rr.radiusX = 4.0f / drawing_cnt_modified_f;
+						rr.radiusY = 4.0f / drawing_cnt_modified_f;
+						p_d2d_ctx->p_dcrt->FillRoundedRectangle(
+							rr,
+							p_d2d_ctx->p_solid_color_brush
+						);
+					}
 				}
+				if (is_shape_symmetric == false) {
+					break;
+				}
+				//设置第二轮渲染状态
+				drawing_cnt_idx = cur_fft_size - drawing_cnt_changable;
+				//这里需要保存原始的drawing cnt
+				drawing_cnt_actual = drawing_cnt_changable;
+				drawing_cnt_changable = cur_fft_size;
 			}
 			//连接结束点
 			if (cur_drawing_style == Vifft_config_ctx::Vifft_Config::Draw_Shape_Config::Draw_Shape_Style::Line) {
 				pnt_to.x = 1.0f;
 				pnt_to.y = 0.0f;
-				p_d2d_ctx->p_dcrt->DrawLine(pnt_from, pnt_to, p_d2d_ctx->p_solid_color_brush, p_app_cfg->draw_shape_config.line_width_multiplier / tranfrom.m11);
+				p_d2d_ctx->p_dcrt->DrawLine(pnt_from, pnt_to, p_d2d_ctx->p_solid_color_brush, p_app_cfg->draw_shape_config.line_width_multiplier / (transform.m11 + transform.m22));
 			}
 			//p_d2d_ctx->p_path_sink->EndFigure(D2D1_FIGURE_END_CLOSED);
 			//p_d2d_ctx->p_path_sink->Close();
